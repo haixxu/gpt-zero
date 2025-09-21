@@ -154,3 +154,109 @@ An SGD step subtracts those, nudging the true next char probability up, others d
 **Keep in head:** *A softmax layer over one-hot inputs is a learnable, smoothed, real-valued generalization of a conditional count table.*
 
 If a specific jump still feels hand-wavy (e.g., the derivative step, the invariance, or gradient mechanics), you can now refer back to the exact section above or adapt the verification code to probe individual rows interactively.
+
+# Bigram Counts to Neural Softmax: Deep Intuition
+
+*(ASCII diagram enhanced version)*
+
+```text
+HIGH-LEVEL FLOW
+===============
+Raw Names --> Count Bigrams --> Matrix N ---------> +1 Smoothing --> Normalize --> P (probabilities)
+                     |                                        |
+                     |                                        v
+                     |------------------> Initialize / Learn W (logits) --> Softmax --> probs
+```
+
+## ASCII: Count Row vs Logit Row
+```text
+Row i of N (raw counts)           Row i of W (logits)
++----+----+----+----+             +---------+---------+---------+---------+
+| 12 |  3 |  0 |  7 |   ---> log  | 2.48    | 1.10    | -inf    | 1.95    |
++----+----+----+----+             +---------+---------+---------+---------+
+   |    |    |    |                      |         |       |         |
+   |    |    |    |                      |         |       |         |
+ row sum = 22                            exp & normalize (softmax)
+   |                                        |
+   v                                        v
+Probabilities (row normalize)        Probabilities (softmax)
+[12/22, 3/22, 0/22, 7/22]        ~=  [0.545, 0.136, ~0, 0.318]
+```
+
+## ASCII: Invariance to Row Shift
+```text
+Original logits row:  [ 2.4, 1.1, 0.0 ]
+Subtract max (2.4):   [ 0.0, -1.3, -2.4 ]   --> softmax unchanged
+Add constant (+5):    [ 7.4, 6.1, 5.0 ]     --> softmax unchanged
+Only *differences* matter.
+```
+
+## ASCII: Gradient Intuition (Single Example)
+```text
+Given true next char = index 2
+Pred probs row: [0.10, 0.20, 0.70]
+Target one-hot: [0,    0,    1   ]
+Gradient (probs - target):
+               [0.10, 0.20, -0.30]
+Meaning:
+- Increase logit for correct class (index 2) because gradient negative
+- Decrease others slightly
+This acts like a soft fractional re-count toward the observed outcome.
+```
+
+## ASCII: Counts Update vs Gradient Step
+```text
+COUNTS (discrete)                GRADIENT (continuous)
+N[i,j] += 1                      w[i,j] <- w[i,j] - lr * (p[i,j] - y[j])
+Only one cell changes            All cells in row shift (mass conservation)
+```
+
+## ASCII: End-to-End Mental Merge
+```text
+           CLASSICAL COUNTS PIPELINE                    NEURAL SOFTMAX PIPELINE
+           --------------------------                   ------------------------
+Input -> tally bigrams -> N -> +1 -> normalize -> P     Input idx -> one-hot -> W row -> exp -> normalize -> probs
+                                |                                                |
+                                |---------------------- same math ---------------|
+```
+
+## ASCII: Verification Idea
+```text
+If W = log(N+1):
+probs_from_W == (N+1)/row_sums(N+1)
+Therefore: softmax(W) reproduces Laplace-smoothed counts exactly.
+```
+
+## Quick Reference Cheat Sheet (ASCII)
+```text
+SYMBOLS
+  N    : integer count matrix (V x V)
+  P    : probability matrix from counts (row-normalized, maybe smoothed)
+  W    : learnable logit matrix (V x V)
+  softmax(W[i]) == P[i]   (at optimum / if initialized from log counts)
+
+CORE EQUIVALENCE
+  counts -> normalize  ==  logits -> exp -> normalize
+
+PIPELINE
+  Data -> bigrams -> N -> ( +1 ) -> normalize -> P
+  Data -> bigrams -> indices -> one-hot -> W -> softmax -> probs
+
+LOSS PER EXAMPLE
+  -log prob(correct next char)
+
+GRADIENT ROW
+  probs - one_hot(target)
+
+SAMPLING
+  start '.' -> repeatedly sample next ~ row distribution until '.'
+
+ROW SHIFT INVARIANCE
+  W[i] + c   softmax→ identical distribution
+
+WHEN EXTENDING
+  Replace one-hot with embedding; replace single row lookup with context model (RNN/Transformer); keep softmax head.
+```
+
+---
+*End of enhanced intuition document.*
